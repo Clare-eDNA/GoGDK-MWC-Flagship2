@@ -1,0 +1,93 @@
+#!/bin/sh -e
+# 19 March 2025
+# Trying to understand missingness and the correct filtering parameters of the GoGDK dataset
+# Trying to understand Data Characterization of GoGDK
+
+# Aoraki Server: /projects/sciences/maths_stats/wilcox_group/GoGDK-19Mar2025-DataCharacterization
+# Raw files: /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDK_v2*
+
+################################################
+#### filter data by SNP missingness ####
+################################################
+
+#!/bin/bash
+
+# Define PLINK executable and base file
+PLINK="/home/adacl33p/Plink2/plink2"
+BASE_BFILE="/projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDK_v2"
+
+# Define missing data thresholds
+thresholds=(0.1 0.05 0.01 0.001 0.0001)
+
+# Loop through each threshold
+for threshold in "${thresholds[@]}"; do
+    OUTFILE="GoGDK_v2_${threshold}"
+    REPORT="missing_snp_report_${threshold}"
+
+    # Step 1: Filter SNPs based on missingness threshold
+    $PLINK --bfile $BASE_BFILE --geno $threshold --make-bed --out $OUTFILE
+
+    # Step 2: Generate missing SNP report
+    $PLINK --bfile $OUTFILE --missing --out $REPORT
+done
+
+
+## R SNP missingness Plot
+
+## Got to double check that the .vmiss and .fmiss files don't have the hashtag
+
+
+library(ggplot2)
+
+# Define missingness thresholds
+thresholds <- c(0.1, 0.05, 0.01, 0.001, 0.0001)
+
+# Loop through each threshold
+for (threshold in thresholds) {
+  
+  # Construct file name
+  filename <- paste0("missing_snp_report_", threshold, ".vmiss")
+  
+  # Read the file if it exists
+  if (file.exists(filename)) {
+    vmiss <- read.table(filename, header=TRUE)
+    
+    # Check column names and first few rows
+    print(paste("Processing:", filename))
+    print(colnames(vmiss))
+    print(head(vmiss))
+    
+    # Histogram of missing SNP proportions
+    p1 <- ggplot(vmiss, aes(x = F_MISS)) +
+      geom_histogram(binwidth = 0.0001, fill="blue", alpha=0.7) +
+      labs(title=paste("Distribution of SNP Missingness (", threshold, ")", sep=""), 
+           x="Proportion of Missing Genotypes", y="Count") +
+      theme_minimal()
+    
+    # Scatter plot of missing SNPs
+    p2 <- ggplot(vmiss, aes(x = 1:nrow(vmiss), y = F_MISS)) +
+      geom_point(alpha=0.5, color="red") +
+      labs(title=paste("Missing SNPs Across the Genome (", threshold, ")", sep=""), 
+           x="SNP Index", y="Proportion Missing") +
+      theme_minimal()
+    
+    # Scatter plot by chromosome (custom color scale)
+    color_palette <- c("red", "blue", "green", "purple", "orange")  # Adjust for more chromosomes if needed
+    
+    p3 <- ggplot(vmiss, aes(x = 1:nrow(vmiss), y = F_MISS, color = as.factor(CHROM))) +
+      geom_point(alpha=0.5) +
+      scale_color_manual(values = color_palette) +
+      labs(title=paste("Missing SNPs Across the Genome (", threshold, ")", sep=""), 
+           x="SNP Index", y="Proportion Missing", color="Chromosome") +
+      theme_minimal()
+    
+    # Save plots as PNG files
+    ggsave(paste0("hist_missing_", threshold, ".png"), p1, width=6, height=4)
+    ggsave(paste0("scatter_missing_", threshold, ".png"), p2, width=6, height=4)
+    ggsave(paste0("chrom_missing_", threshold, ".png"), p3, width=6, height=4)
+    
+    print(paste("Plots saved for threshold:", threshold))
+  } else {
+    print(paste("File not found:", filename))
+  }
+}

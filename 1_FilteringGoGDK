@@ -1,0 +1,194 @@
+#!/bin/sh -e
+## Proposed Filtering for "the data" - the Core GoGDK cohort consisting of "Gout in Aotearoa" "Gout in Aotearoa (old)" "Diabetes Mellitus" and "Kidney Disease"
+
+################################################
+# 1. Excel File of People Records - from Tony Merriman's Hard Drive
+# smb://storage.hcs-p01.otago.ac.nz/biochem-merriman/Datasets/New_Zealand_Chip_data/CoreExome/QC_MergedBatches/Final_Data/CZ-MB1.2-QC1.10_MergedPhenotypes_15072020.xlsx
+
+
+# 2. Initial Filtering Proposal
+# - Select from "General.Use" = "Yes" + "Maybe - Check"
+# - Select from "Pheno.Study" = "Diabetes Mellitus" + "Gout in Aotearoa" + "Gout in Aotearoa (old)" + "Renal Disease"
+# - Select from "Pheno.Country" = "New Zealand"
+
+## From this you get 5,722 records (out of 21,571 records)
+
+## 3. Additional Filtering Proposal (stuff by hand)
+# - Select from these people the no-color columns = People generally without problem -> include all
+# - Select from these people the yellow color columns = People with ancestries reported that don't match their genetics totally -> include all
+# - Select from these people the blue-color columns = People that were flagged as duplicates and need to be checked as to why -> include those if able, assuming we know the reason why they were duplicated and can resolve that
+# - Purple coloured people have been excluded as they have withdrawn consent -> do not include
+# - Grey coloured people have been excluded because no genotype -> do not include
+
+# - Orange coloured people have been excluded due to duplicate error or sex mis-match from the dataset, but are recorded here so we have a record of them -> do not include
+
+
+#- duplicate people (they show up as blue highlights in the original xlsx dataset) - 
+#- removed those whose DNA replicate did not pass genotype QC - removed the bad genotype and then kept the good genotype
+#- removed those whose DNA did not make it past QC - as they won't be in the .fam file anyways
+#- removed pink from columns of those who had a duplicate in some other Merriman study but were not duplicated on this specific list - kept these people
+#- Some people had duplicate not found, so kept those people
+#- Removed RD0258 because they only had PhenoCollectionUrate and no ethnicity, height, weight, age, birthday, collection date, etc. information
+
+#- See list of problem people for people we still need to make a decision on - ~4,780 people before we axe ~20 of them in the "decide individually about duplicates" column
+
+#> Note that people have changed color when copying and pasting over to another excel spreadsheet, pink is now duplicates and blue is now people whos genotypes don't match reported ethnicity
+#> all other colors have been excluded (grey, purple)
+
+#> Removed people that did not pass quality control and did not have their genotypes in the genotype data files (~300)
+
+# Leaves 4470 people (with ~20 still questionable in terms of if they're duplicates or not- we have to go through them by hand)
+
+#"Problem" people AND what action we took ( can be found in Problem_duplicates.xlsx)				
+#ID1	ID2	Problem	Ages		Action
+#AT0650	DM136	Recruited for gout study as a control, then recruited a year later in diabetes study as "Gout" - which phenotype/record to use? 	52, 53	* different phenotype files? 	Kept DM136 version because they developed gout and also moved their Pheno.CollectionUrate to 0.370 to the DM record; DM136 genotyped better
+#AT0968	AT1034	Recruited twice as gout control, same year but slightly different phenotypes	41, 41		Kept AT1034, Pheno.CollectionUrate differs (0.270 for AT0968 and 0.330 AT1034), assumed that the second was the most recent version of the person's vitals so went with that one
+#AT1533	G6124	Gout person with two records of phenotypes / genotypes (ages 46 and 42)	42, 46		Kept their AT1533 number due to them being older/more recent collection. Added in their height weight and BMI from their previous into this one given it was missing *also need to check for other phenotype
+#AT1600	G6343C	Control person with two records of phenotypes / genotypes (ages 35 and 32)	32, 35		Kept AT1600 because age 35 is more recent than age 32
+#AT1601	G6445C	Control person with two records of phenotypes / genotypes (ages 19 and 22)	19,22		Kept AT1601 because age 22 is more recent than age 19
+#DM054	RD0040	Control person recruited twice, may have two records of phenotypes/genotypes (age 55 + 57)	55, 57		Kept RD0040 because age 57 is younger than age 55
+#DM078	RD0261	Control person with two records of phenotypes / genotypes (age 62 + 65)	62, 65		Kept RD0261, more accurate ethnicity and also more recent age, found out they were oceanian and their PCA confirms oceanian
+#DM202	G6507	Gout person with two records of phenotypes / genotypes, also DM439 which is not found	49, 49	* different phenotype files? 	Kept DM202, most recent measurement taken
+#DM208	G5447	Gout person with two records of phenotypes/genotypes	47, 44	* different phenotype files? 	Kept DM208, most recent record
+#G5061	G5580	Gout person, but one record has SURATE and the other does not, also ethnicities do not match (east v west poly?)	54, 57		Kept G5061 even though less recent because it matched ethnicity, also moved the 0.7 Pheno.CollectionUrate to this record from the G5580 record. Recognized that their weight/age/height was different and they lost about 10 BMI points over time, but the first measurement still has gout and is still a snapshot
+#G5117	G5316	Gout person with two records of phenotypes/genotypes	61, 62		Kept G5316 - it is a more recent measurement, even though this person went from 155 cm to 172 cm in just one year!
+#G5135	RD0084	Gout person with two records of phenotypes/genotypes, potentially recruited again for the RD study?	39, 34	* different phenotype files? 	Kept RD0084 because it is a more recent measurement
+#G5456	G6119	Gout person with two records of phenotypes/genotypes - BMIs different, weight gain	21,23		Kept G6119 - 23 because older / more recent
+#G5623	G6074	Gout person with two records of phenotypes/genotypes	50, 50		Kept G6074 - because taken at the end of the year instead of at the beginning and therefore is the most recent measurement
+#AT0988	G6571	Gout person with two records of phenotypes/genotypes	69, 69		Kept G6571, it was the more recent measurement, and the guy did a great job losing 20 kilos!
+#G7269	G7389	Gout person with two records of phenotypes/genotypes, He gained like 15 kilos in a year? 128-144 kilo	32, 33		Kept G7389 because most recent measruement
+#RD0086	RD0182	Control person with two records of phenotypes / genotypes, grew 8 cm in the same year at the age of 70?	70, 70		Kept RD0182 because most recent measurement			
+
+
+## 4. Final Steps
+# Ensure that everyone has a unique ID (checked in excel)
+
+# Result: 4453 people 
+
+################################################
+######   Matching person to Phenotype   ######
+################################################
+
+# smb://storage.hcs-p01.otago.ac.nz/biochem-merriman/Datasets/SNPMAX_BACKUP_PHENO_DB_STILL_ACTIVE/
+# Gout People File: smb://storage.hcs-p01.otago.ac.nz/biochem-merriman/Datasets/SNPMAX_BACKUP_PHENO_DB_STILL_ACTIVE/Gout_Pheno_DB_31March2022_readonly.txt
+# Diabetes / Renal Disease File: smb://storage.hcs-p01.otago.ac.nz/biochem-merriman/Datasets/SNPMAX_BACKUP_PHENO_DB_STILL_ACTIVE/RD_PHENO_DB_24032022.txt
+# DM File (in another location with special filtering for only the people we needed!): smb://staff.hcs-p01.otago.ac.nz/biochem-merriman/merrimanlab/Merriman_Documents/Central_data_files/BCSNPmax/SAVE_SNPMAX_AUG2021_copy/DM_PHENO.txt
+
+## 2. Ensure there are no overlapping IDs for gout / diabetes / renal disease from the first two files
+# Merge into one file via R code (note: mix of R code and unix code here, scripts in XXXX)
+
+pheno1 <- read.table("new_gout_pheno.txt", header=FALSE, sep="\t", stringsAsFactors=FALSE, quote="", fill=TRUE)
+pheno2 <- read.table("RD_PHENO_DB_24032022.txt", header=FALSE, sep="\t", stringsAsFactors=FALSE, quote="", fill=TRUE)
+
+merged_data3 <- full_join(pheno1, pheno2, by = "SUBJECT") %>%
+  mutate(across(ends_with(".x"), ~ coalesce(.x, get(sub(".x", ".y", cur_column()))))) %>%
+  rename_with(~ sub("\\.x$", "", .), ends_with(".x")) %>%
+  select(-ends_with(".y"))
+
+write.table(merged_data3, file = "merged_phenotypes_13-03-2025.tsv", sep = "\t", row.names = FALSE, quote = FALSE)
+
+## 4. Check
+# Check to ensure that there are no gaps
+# FYI there's some bioinformatic work around here in terms of filtering
+# Pheno_SampleID_v4.txt = the 4453 IDs we want to keep
+
+
+### Matching the gaps
+
+## took the phenotype files from smb://storage.hcs-p01.otago.ac.nz/biochem-merriman/Datasets/SNPMAX_BACKUP_PHENO_DB_STILL_ACTIVE
+# RD_PHENO_DB_24032022.txt
+# Gout_Pheno_DB_31March2022_readonly.txt
+# (note that these files say they were created 19 September 2023, although file names suggest otherwise)
+
+## took extra Diabetes information for those missing from here: smb://staff.hcs-p01.otago.ac.nz/biochem-merriman/merrimanlab/Merriman_Documents/Central_data_files/BCSNPmax/SAVE_SNPMAX_AUG2021_copy/DM_PHENO.txt
+# (note that tis file says it was created 5 August 2023)
+
+ scp *txt adacl33p@aoraki-login.otago.ac.nz:///projects/sciences/maths_stats/wilcox_group/ActualGoGDK-March2025
+
+# get out the Pheno_SampleID_v4.txt column which only has the IDs in it
+cut -f3 GoGDK-core-v4-NoDuplicates.txt > Pheno_SampleID_v4.txt
+head Pheno_SampleID_v4.txt
+
+# try grepping out the IDs from the merged_phenotypes.tsv file
+
+# (head -n 1 merged_phenotypes_13-03-2025.tsv && grep -wFf Pheno_SampleID_v4.txt merged_phenotypes_13-03-2025.tsv) > matched_rows1.tsv
+#matched_rows1 has duplicates now because of it pulling out all columns which match including Alt IDs
+#matched_rows2 - not usable, misses people
+
+# matched Rows 3
+(head -n 1 merged_phenotypes_13-03-2025.tsv && awk -F'\t' 'NR==FNR {ids[$1]; next} FNR==1 || ($1 in ids)' Pheno_SampleID_v4.txt merged_phenotypes_13-03-2025.tsv) > matched_rows3.tsv
+
+## adding in the DM phenotypes that we didn't see before
+
+#DM_filtered_data.txt = list of DM numbers we didn't have before, got from R comparisons
+
+(head -n 1 OriginalPhenotypes/DM_PHENO.txt && awk -F'\t' 'NR==FNR {ids[$1]; next} FNR==1 || ($1 in ids)' Missing_DM_newLine.txt OriginalPhenotypes/DM_PHENO.txt) > DM_filtered_data.txt
+# this is 132 individuals
+
+#add them in to the main dataset via R 
+
+# OK matched rows is our phenotypic data I guess! 
+
+# our final output is GoGDKPheno_18-03-2025.tsv
+
+[adacl33p@aoraki-login ActualGoGDK-March2025]$ wc -l GoGDKPheno_18-03-2025.tsv
+#4454 GoGDKPheno_18-03-2025.tsv
+[adacl33p@aoraki-login ActualGoGDK-March2025]$ wc -l Pheno_SampleID_v4.txt
+#4453 Pheno_SampleID_v4.txt
+[adacl33p@aoraki-login ActualGoGDK-March2025]$ head -n 2 Pheno_SampleID_v4.txt #(shows missing one line due to no header here)
+#AT1034
+#AT1533
+
+## total people for final dataset: 4454 people
+## File: GoGDKPheno_18-03-2025.tsv
+
+## trying to do a left join so we can get names etc. -- Unix code here ###
+
+head -n 5 GoGDKPheno_18-03-2025.tsv | cut -f1-5             # SUBJECT
+head -n 5 GoGDK-core-v4-NoDuplicates.txt | cut -f1-5        # Pheno.SampleID
+
+
+#### OK we want to left join GoGDKPheno_18-03-2025.tsv and GoGDK-core-v4-NoDuplicates.txt in R ####
+
+
+GDK-Pheno <- read.table("GoGDKPheno_18-03-2025.tsv", header=TRUE, sep="\t", encoding="UTF-8", stringsAsFactors=FALSE, quote="")
+GDK-core <- read.table("GoGDK-core-v4-NoDuplicates.txt", header=TRUE, sep="\t", encoding="UTF-8", stringsAsFactors=FALSE, quote="")
+
+
+
+################################################
+#######     Filtering for GoGDK SNPs     #######
+################################################
+
+# Original files : CZ-MB1.2-QC1.10_CoreExome24-1.0-3_genotyped-QCd_rsIDconverted.(.bed / .bim / .fam / .log)
+# Found here: smb://storage.hcs-p01.otago.ac.nz/biochem-merriman/Datasets/New_Zealand_Chip_data/CoreExome/QC_MergedBatches/Final_Data
+
+## make a keep file
+#awk '{print $1, $2}' CZ-MB1.2-QC1.10_CoreExome24-1.0-3_genotyped-QCd_rsIDconverted.fam | head > FID_IID.txt
+#awk 'NR==FNR {ids[$1]; next} $2 in ids {print $1, $2}' Pheno_SampleID_v4.txt CZ-MB1.2-QC1.10_CoreExome24-1.0-3_genotyped-QCd_rsIDconverted.fam > keep_samples.txt
+
+## Note: we lost some samples here, down to 4430 now
+
+
+## try filtering w plink2
+/home/adacl33p/Plink2/plink2 --bfile CZ-MB1.2-QC1.10_CoreExome24-1.0-3_genotyped-QCd_rsIDconverted --keep keep_samples.txt --make-bed --out GoGDK_v1
+
+#12532 samples (3320 females, 9102 males, 110 ambiguous; 11988 founders) loaded
+#from CZ-MB1.2-QC1.10_CoreExome24-1.0-3_genotyped-QCd_rsIDconverted.fam.
+#521108 variants loaded from
+#CZ-MB1.2-QC1.10_CoreExome24-1.0-3_genotyped-QCd_rsIDconverted.bim.
+#Note: No phenotype data present.
+#--keep: 4430 samples remaining.
+#4430 samples (1467 females, 2961 males, 2 ambiguous; 4172 founders) remaining
+#after main filters.
+
+##  We have lost some samples (23) - will test out with these now. If we need to re-filter the data, we can.
+## Found out we were missing the samples with ".2" (second duplicate used) after them... try to get a better file
+
+cut -f45 GoGDK-core-v4-NoDuplicates.txt > GenoSampleID.txt
+
+awk 'NR==FNR {ids[$1]; next} $2 in ids {print $1, $2}' GenoSampleID.txt CZ-MB1.2-QC1.10_CoreExome24-1.0-3_genotyped-QCd_rsIDconverted.fam > keep_samples.txt
+
+/home/adacl33p/Plink2/plink2 --bfile CZ-MB1.2-QC1.10_CoreExome24-1.0-3_genotyped-QCd_rsIDconverted --keep keep_samples.txt --make-bed --out GoGDK_v2
+
+## great! Back to 4453 samples

@@ -1,0 +1,560 @@
+#!/bin/bash -e
+## 21 Mar 2025
+## Trying out Beagle to impute genotypes for files
+
+cd /projects/sciences/maths_stats/wilcox_group/GoGDK
+# [Aoraki server]
+
+
+# QC  -   Check if there are snps that are missing from any one group
+
+for group in allPolys EastPolys eastwests europeans EuroPoly Oceanians WestPolys; do
+    /home/adacl33p/Plink2/plink2 --bfile EthnicityGroup/${group} \
+        --freq \
+        --out EthnicityGroup/${group}_freq
+done
+
+
+## creates snp lists for each population and also a master snp list
+
+
+cat *_freq.afreq | awk 'NR>1 {print $2}' | sort -u > master_snp_list.txt
+
+for group in allPolys EastPolys eastwests europeans EuroPoly Oceanians WestPolys; do
+    diff master_snp_list.txt ${group}_snp_list.txt
+    cmp -s master_snp_list.txt ${group}_snp_list.txt && echo "Files are identical" || echo "Files are different"
+done
+
+
+# Read master SNP list
+master_snp_list <- read.table("master_snp_list.txt", header = FALSE, stringsAsFactors = FALSE)[[1]]
+
+# List of population SNP files
+populations <- c("allPolys", "EastPolys", "eastwests", "europeans", "EuroPoly", "Oceanians", "WestPolys")
+
+# Create empty data frame to store presence/absence
+presence_matrix <- data.frame(SNP = master_snp_list)
+
+# Loop over each population
+for (pop in populations) {
+  pop_snp_list <- read.table(paste0(pop, "_snp_list.txt"), header = FALSE, stringsAsFactors = FALSE)[[1]]
+  
+  # Mark presence (1) or absence (0)
+  presence_matrix[[pop]] <- ifelse(master_snp_list %in% pop_snp_list, 1, 0)
+}
+
+# Write the SNP presence/absence matrix to file
+write.table(presence_matrix, "snp_presence_matrix.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+# Print some summary stats
+missing_counts <- rowSums(presence_matrix[,-1] == 0)  # Count missing populations per SNP
+cat("Number of SNPs missing in at least one population:", sum(missing_counts > 0), "\n")
+cat("Number of SNPs missing in all but one population:", sum(missing_counts == (length(populations) - 1)), "\n")
+cat("Number of SNPs missing in all populations:", sum(missing_counts == length(populations)), "\n")
+
+
+## OK well, we're satisfied that 
+
+## remove SNPs that are not found in each population
+# file [ethnicity]_missing_snps.txt are the snps, one per line, that we are filtering out, per ethnicity
+
+#!/bin/bash
+
+# Define your ethnicity-specific files and missing SNP lists
+declare -A ethnicities
+ethnicities["allPolys"]="allPolys_missing_snps.txt"
+ethnicities["EastPolys"]="EastPolys_missing_snps.txt"
+ethnicities["eastwests"]="eastwests_missing_snps.txt"
+ethnicities["europeans"]="europeans_missing_snps.txt"
+ethnicities["EuroPoly"]="EuroPoly_missing_snps.txt"
+ethnicities["WestPolys"]="WestPolys_missing_snps.txt"
+
+
+# Iterate through each ethnicity and filter out missing SNPs
+for ethnicity in "${!ethnicities[@]}"; do
+    missing_snps_file="${ethnicities[$ethnicity]}"
+    input_prefix="${ethnicity}"  # Assuming filenames like EuroPoly.bed, Oceanians.bed, etc.
+    output_prefix="${ethnicity}_filtered"
+
+    echo "Processing ${ethnicity} dataset, removing SNPs listed in ${missing_snps_file}..."
+
+    /home/adacl33p/Plink2/plink2 --bfile "${input_prefix}" \
+           --exclude "${missing_snps_file}" \
+           --make-bed \
+           --out "${output_prefix}"
+
+    echo "Filtered dataset saved as ${output_prefix}.bed/.bim/.fam"
+done
+
+echo "All filtering complete!"
+
+
+## We found some snps (71,861) with a "." for the reference allele with an A,T,C,G, I, or D as alternate allele
+## You cannot convert .bim .bam .fam files into a .vcf file so easily with these as references/alternates
+# replace all the columns that have a "." for the reference allele with an "N"
+
+
+
+#!/bin/bash
+
+# List of your ethnic groups (or directories containing the files)
+ethnic_groups=("allPolys" "EastPolys" "eastwests" "europeans" "EuroPoly" "WestPolys")
+
+# Loop over each ethnic group and modify the .bim file
+for group in "${ethnic_groups[@]}"; do
+    # Assuming the .bim file is in each group's folder
+    sed 's/\t\.\t/\tN\t/g' "${group}_filtered.bim" > "${group}_filtered_N.bim"
+    echo "Processed ${group}_filtered_N.bim"
+done
+
+## Now there are only Is and Ds to deal with
+
+awk '$6 == "D" || $6 == "I"' WestPolys_filtered_N.bim | wc -l
+
+# counts the Is and Ds in the .bim files
+
+###############
+
+# OK - basically ignore everything that isn't a biallelic snp and filter the .bed .bim .fam files for a 1% minor allele frequency
+
+###############
+
+#!/bin/bash
+
+# Path to PLINK executable
+PLINK="/home/adacl33p/Plink2/plink2"
+
+# List of ethnicity dataset prefixes
+datasets=("allPolys" "EastPolys" "eastwests" "europeans" "EuroPoly" "WestPolys")
+
+# Loop through each dataset
+for dataset in "${datasets[@]}"; do
+    $PLINK --bfile "$dataset" \
+           --maf 0.01 \
+           --make-bed \
+           --out "${dataset}_filtered-maf0.01"
+done
+
+echo "Filtering complete!"
+
+# --bfile your_input_file: Uses your .bed/.bim/.fam files as input.
+# --maf 0.01: Keeps only SNPs with a minor allele frequency of at least 1% (0.01).
+# --geno 0: Removes SNPs with any missing genotype data (missingness = 0).
+# --make-bed: Outputs the filtered dataset in binary PLINK format.
+# --out filtered_output: Saves the output files with the prefix filtered_output.
+
+
+#### double check to ensure that these allele frequencies are OK ###
+
+#!/bin/bash
+
+# Path to PLINK executable
+PLINK="/home/adacl33p/Plink2/plink2"
+
+# List of ethnicity dataset prefixes
+datasets=("allPolys" "EastPolys" "eastwests" "europeans" "EuroPoly" "WestPolys")
+
+# Loop through each dataset to filter SNPs
+for dataset in "${datasets[@]}"; do
+    $PLINK --bfile "${dataset}_filtered-maf0.01" \
+           --freq \
+           --out "${dataset}_maf_freq"
+done
+
+
+cat *_mafgeno_freq.afreq | awk 'NR>1 {print $2}' | sort -u > master_mafgeno_snp_list.txt
+
+for group in allPolys EastPolys eastwests europeans EuroPoly WestPolys; do
+    diff master_mafgeno_snp_list.txt ${group}_snp_list.txt
+    cmp -s master_mafgeno_snp_list.txt ${group}_snp_list.txt && echo "Files are identical" || echo "Files are different"
+done
+
+#!/bin/bash
+
+# List of ethnicity dataset prefixes
+datasets=("allPolys" "EastPolys" "eastwests" "europeans" "EuroPoly" "WestPolys")
+
+# Extract SNP lists
+for dataset in "${datasets[@]}"; do
+    awk 'NR>1 {print $2}' "${dataset}_mafgeno_freq.afreq" > "${dataset}_filtered_mafgeno_snps.txt"
+done
+
+echo "SNP lists extracted!"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Actual doing stuff
+
+## filter GoGDK data by minor allele frequency - 1% threshold
+
+/home/adacl33p/Plink2/plink2 --bfile GoGDK_v2 --maf 0.01 --make-bed --out Ethnicity/GoGDK_maf0.01
+
+## Split out via FID/IID pairs
+cd /projects/sciences/maths_stats/wilcox_group/GoGDK
+
+for keepfile in EthnicityGroup/*_keep_formatted.txt; do
+    group=$(basename "$keepfile" _keep_formatted.txt)
+    /home/adacl33p/Plink2/plink2 --bfile Ethnicity/GoGDK_maf0.01 \
+        --keep "$keepfile" --make-bed --out "Ethnicity/${group}_maf0.01"
+done
+
+mv EuroPoly_data_maf0.01.bed EuroPoly_maf0.01.bed
+mv EuroPoly_data_maf0.01.fam EuroPoly_maf0.01.fam
+mv EuroPoly_data_maf0.01.bim EuroPoly_maf0.01.bim
+mv EuroPoly_data_maf0.01.log EuroPoly_maf0.01.log
+
+
+
+
+## still having .vcf problems
+awk '{print $5"\n"$6}' EuroPoly_maf0.01.bim | sort | uniq -c
+
+[adacl33p@aoraki-login Ethnicity]$ awk '{print $5"\n"$6}' EuroPoly_maf0.01.bim | sort | uniq -c
+   1102 .
+ 131141 A
+ 132385 C
+    132 D
+ 132750 G
+    133 I
+ 130905 T
+
+awk '{if ($5 !~ /^[ACGTNacgtn]$/ || $6 !~ /^[ACGTNacgtn]$/) print}' EuroPoly_maf0.01.bim 
+
+# OK, just ... remove these guys at the beginning - remove indel list as well as snps without references (. for ref and . for alt)
+
+#!/bin/bash
+
+# Path to Plink2
+PLINK2="/home/adacl33p/Plink2/plink2"
+
+# List of ethnicity dataset prefixes
+DATASETS=("allPolys" "EastPolys" "eastwests" "europeans" "EuroPoly" "WestPolys")
+
+# Function to process single dataset
+process_single_dataset() {
+    local dataset="$1"
+    local bim_file="${dataset}_maf0.01.bim"
+    
+    # Validate input file exists
+    if [ ! -f "$bim_file" ]; then
+        echo "Error: Cannot find $bim_file"
+        return 1
+    fi
+    
+    # Count problematic SNPs
+    local problematic_snp_count=$(awk '$5 !~ /^[ACGTNacgtn]$/ || $6 !~ /^[ACGTNacgtn]$/ {print $2}' "$bim_file" | wc -l)
+    
+    # Perform Plink2 filtering
+    "$PLINK2" \
+        --bfile "${dataset}_maf0.01" \
+        --exclude <(awk '$5 !~ /^[ACGTNacgtn]$/ || $6 !~ /^[ACGTNacgtn]$/ {print $2}' "$bim_file") \
+        --make-bed \
+        --out "${dataset}_cleaned"
+    
+    # Check processing result
+    if [ $? -eq 0 ]; then
+        echo "Processed $dataset: Removed $problematic_snp_count problematic SNPs"
+    else
+        echo "Failed to process $dataset"
+        return 1
+    fi
+}
+
+# Main script execution
+main() {
+    for dataset in "${DATASETS[@]}"; do
+        process_single_dataset "$dataset"
+    done
+}
+
+# Run the main function
+main
+
+
+
+
+
+
+
+
+
+# step 1 - convert to vcf from plink format
+
+#!/bin/bash
+
+module load samtools/1.19.2-eymmh4o
+
+# List of ethnicity groups (matching the filtered files)
+for group in allPolys EastPolys eastwests europeans EuroPoly WestPolys; do
+    echo "Processing ${group}..."
+
+    # Check if PLINK files exist
+    if [[ ! -f "${group}_cleaned.bed" ]]; then
+        echo "File ${group}_cleaned.bed not found. Skipping."
+        continue
+    fi
+
+    # Convert PLINK to compressed VCF (direct bgz output if supported)
+    /home/adacl33p/Plink2/plink2 --bfile "${group}_cleaned" \
+        --recode vcf bgz \
+        --out "${group}_maf0.01_cleaned"
+
+    echo "Finished ${group}. Output: ${group}_maf0.01_cleaned.vcf.gz"
+done
+
+
+
+
+
+
+
+
+
+
+
+
+# step 2 - compress and index vcfs for beagle, make files only autosomes and not MT, X or Y
+
+module load miniconda3/24.7.1-7ixpcmz
+conda init bash
+source ~/.bashrc
+conda activate genomics
+
+# index vcfs
+
+cd /projects/sciences/maths_stats/wilcox_group/GoGDK/Ethnicity/vcf
+
+# List of VCF files to index
+vcf_files=(
+    "allPolys_maf0.01_cleaned.vcf.gz"
+    "eastwests_maf0.01_cleaned.vcf.gz"
+    "EuroPoly_maf0.01_cleaned.vcf.gz"
+    "EastPolys_maf0.01_cleaned.vcf.gz"
+    "europeans_maf0.01_cleaned.vcf.gz"
+    "WestPolys_maf0.01_cleaned.vcf.gz"
+)
+
+# Loop through and index each VCF
+for vcf in "${vcf_files[@]}"; do
+    tabix -p vcf "$vcf"
+    echo "Indexed: $vcf"
+done
+
+
+for file in *_cleaned.vcf.gz; do
+    echo "Processing $file..."
+    
+    # Create output filename
+    out_file="${file%.vcf.gz}_autosomes.vcf.gz"
+
+    # Filter autosomes
+    bcftools view -r 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 \
+      -Oz -o "$out_file" "$file"
+
+    # Index the output VCF
+    tabix -p vcf "$out_file"
+
+    echo "Finished processing $file -> $out_file"
+done
+
+
+
+
+
+# step reference - make a reference panel based on high quality genotypes
+## note that this is not done :( 
+
+#!/bin/bash
+
+# Add error checking and verbose output
+set -e  # Exit immediately if a command exits with a non-zero status
+set -x  # Print commands and their arguments as they are executed
+
+module load miniconda3/24.7.1-7ixpcmz
+conda init bash
+source ~/.bashrc
+conda activate genomics
+
+cd /projects/sciences/maths_stats/wilcox_group/GoGDK/Ethnicity/vcf/
+
+# List of VCF files
+vcf_files=(
+    "allPolys_maf0.01_cleaned.vcf.gz"
+    "eastwests_maf0.01_cleaned.vcf.gz"
+    "EuroPoly_maf0.01_cleaned.vcf.gz"
+    "EastPolys_maf0.01_cleaned.vcf.gz"
+    "europeans_maf0.01_cleaned.vcf.gz"
+    "WestPolys_maf0.01_cleaned.vcf.gz"
+)
+
+# Loop through each VCF file
+for vcf in "${vcf_files[@]}"; do
+    # Verify input file exists and is readable
+    if [ ! -f "$vcf" ]; then
+        echo "Error: Input file $vcf does not exist!"
+        continue
+    fi
+
+    # Ensure the VCF is indexed
+    if [ ! -f "${vcf}.tbi" ]; then
+        echo "Indexing $vcf..."
+        tabix -p vcf "$vcf"
+    fi
+
+    # Extract population name (remove .vcf.gz)
+    population=$(basename "$vcf" _maf0.01_cleaned.vcf.gz)
+    output_ref_panel="${population}_reference_panel.vcf.gz"
+    
+    # Detailed logging
+    echo "Processing $vcf to create $output_ref_panel"
+
+    # Verbose bcftools view with more diagnostic information
+       # Filtering criteria
+    bcftools view \
+        -m2 -M2 \                  # Biallelic sites only
+        -O z \
+        "$vcf" > "$output_ref_panel"
+    
+    # Index the compressed VCF
+    tabix -p vcf "$output_ref_panel"
+    
+    # Verify the output file
+    echo "Checking output file $output_ref_panel:"
+    bcftools stats "$output_ref_panel" > "${output_ref_panel}_stats.txt"
+    echo "Number of variants in $output_ref_panel:"
+    bcftools query -f '%CHROM\t%POS\n' "$output_ref_panel" | wc -l
+done
+
+echo "Reference panel creation complete!"
+
+
+
+## Step 2.5 -- analyze vcf files!! 
+
+
+# Count total variants in each file
+bcftools view -H allPolys_maf0.01_cleaned.vcf.gz | wc -l
+bcftools view -H allPolys_reference_panel.vcf.gz | wc -l
+
+# Count common variants
+bcftools isec -n=2 allPolys_maf0.01_cleaned.vcf.gz allPolys_reference_panel.vcf.gz | wc -l
+
+
+
+
+# step 3 - run beagle for imputation
+
+## first - run beagle without a reference
+
+
+for file in *_autosomes.vcf.gz; do
+    java -Xmx64g -jar /opt/beagle/27Feb25.75f/beagle.27Feb25.75f.jar gt=$file out=./imputation-NoRef/${file%.vcf.gz}_ImputedNoRef
+done
+
+
+
+#!/bin/bash
+#SBATCH --job-name=beagle_impute
+#SBATCH --array=0-6
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=64G
+#SBATCH --time=12:00:00
+#SBATCH --output=logs/beagle_%A_%a.out
+
+# Load Java if needed
+module load miniconda3/24.7.1-7ixpcmz
+conda init bash
+source ~/.bashrc
+conda activate genomics
+module load beagle/27Feb25.75f/modulefile
+module load java/23
+
+
+cd /projects/sciences/maths_stats/wilcox_group/GoGDK/Ethnicity/vcf/
+
+# index autosomes if needed
+
+# index the file
+for file in *_autosomes.vcf.gz; do
+    echo "Indexing $file..."
+    tabix -p vcf "$file"
+    echo "Finished indexing $file"
+done
+
+
+
+# Get file list
+FILES=(*_autosomes.vcf.gz)
+FILE=${FILES[$SLURM_ARRAY_TASK_ID]}
+
+# Extract base name
+BASE=$(basename $FILE _maf0.01_cleaned_autosomes.vcf.gz)
+
+# Run Beagle with no reference
+java -Xmx64g -jar /opt/beagle/27Feb25.75f/beagle.27Feb25.75f.jar gt=$FILE \
+    out=./imputation-NoRef/${BASE}_ImputedNoRef nthreads=32
+
+
+for file in *_ImputedNoRef.vcf.gz; do
+    echo "Indexing $file..."
+    tabix -p vcf "$file"
+    echo "Finished indexing $file"
+done
+
+
+# index the file
+for file in *_ImputedNoRef.vcf.gz; do
+    echo "Indexing $file..."
+    tabix -p vcf "$file"
+    echo "Finished indexing $file"
+done
+
+
+
+## loop for checking to see if it looks somewhat normalish
+for file in allPolys_ImputedNoRef.vcf.gz \
+            eastwests_ImputedNoRef.vcf.gz \
+            EuroPoly_ImputedNoRef.vcf.gz \
+            EastPolys_ImputedNoRef.vcf.gz \
+            europeans_ImputedNoRef.vcf.gz \
+            WestPolys_ImputedNoRef.vcf.gz; do
+    echo "=== Previewing: $file ==="
+    bcftools view "$file" | tail -n 3
+    echo
+done
+
+## 22 chromosomes (autosomes) and looks OK
+
+
+
+# loop to change back into .bed .bim .fam 
+
+cd /projects/sciences/maths_stats/wilcox_group/GoGDK/Ethnicity/vcf/imputation-NoRef/ImputedData
+
+for file in allPolys_ImputedNoRef.vcf.gz \
+            eastwests_ImputedNoRef.vcf.gz \
+            EuroPoly_ImputedNoRef.vcf.gz \
+            EastPolys_ImputedNoRef.vcf.gz \
+            europeans_ImputedNoRef.vcf.gz \
+            WestPolys_ImputedNoRef.vcf.gz; do
+    echo "Converting $file to PLINK format..."
+    /home/adacl33p/Plink2/plink2 --vcf "$file" --make-bed --out "./ImputedPLINKformat/${file%.vcf.gz}"
+    echo "Finished processing $file"
+done
+
+
+## Ok here are our PLINK files that have been imputed. 

@@ -1,0 +1,121 @@
+#!/bin/sh -e
+# 19 March 2025
+# Trying to understand missingness and the correct filtering parameters of the GoGDK dataset
+# Trying to understand Data Characterization of GoGDK
+
+# Note: we ended up filtering the whole GoGDK genotypes for a minor allele frequency of 1% (MAF 0.01) before splitting the genomic data
+
+## unix - filtering by IDs 
+
+# Save the header separately
+head -n 1 /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > header.tsv
+
+awk -F"\t" 'NR==1 || $473 == "European"' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/europeans.tsv
+awk -F"\t" 'NR==1 || $473 == "East Polynesian"' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/EastPolys.tsv
+awk -F"\t" 'NR==1 || $473 == "West Polynesian"' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/WestPolys.tsv
+awk -F"\t" 'NR==1 || $473 == "Oceanian"' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/Oceanians.tsv
+awk -F"\t" 'NR==1 || $473 == "West Polynesian" || $473 == "East Polynesian"' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/eastwests.tsv
+awk -F"\t" 'NR==1 || $473 == "West Polynesian" || $473 == "East Polynesian" || $473 == "Mixed East-West" || $473 == "Oceanian"' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/allPolys.tsv
+awk -F"\t" 'NR==1 || $473 == "West Polynesian" || $473 == "East Polynesian" || $473 == "Mixed East-West" || $473 == "Oceanian" || $473 == "European"' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/EuroPoly_data.tsv
+
+awk -F"\t" 'NR==1 || $473 ~ /^ *European *$/' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/europeans.tsv
+awk -F"\t" 'NR==1 || $473 ~ /^ *East Polynesian *$/' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/EastPolys.tsv
+awk -F"\t" 'NR==1 || $473 ~ /^ *West Polynesian *$/' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/WestPolys.tsv
+awk -F"\t" 'NR==1 || $473 ~ /^ *Oceanian *$/' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/Oceanians.tsv
+awk -F"\t" 'NR==1 || $473 ~ /^ *(West Polynesian|East Polynesian) *$/' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/eastwests.tsv
+awk -F"\t" 'NR==1 || $473 ~ /^ *(West Polynesian|East Polynesian|Mixed East-West|Oceanian) *$/' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/allPolys.tsv
+awk -F"\t" 'NR==1 || $473 ~ /^ *(West Polynesian|East Polynesian|Mixed East-West|Oceanian|European) *$/' /projects/sciences/maths_stats/wilcox_group/GoGDK/GoGDKPheno_19-03-2025.tsv > EthnicityGroup/EuroPoly_data.tsv
+
+
+# create a numbered list of the column names
+#head -n 1 GoGDKPheno_19-03-2025.tsv | awk '{for (i=1; i<=NF; i++) print i, $i}' > ColumnHeaders.txt
+
+## Get "FID" and IID for each ethnicity
+
+for file in EthnicityGroup/*.tsv; do
+    ethnicity=$(basename "$file" .tsv)  # Extracts the ethnicity name from filename
+    awk 'NR==FNR {iids[$1]; next} $2 in iids' "$file" keep_samples.txt > "EthnicityGroup/${ethnicity}_keep.txt"
+done
+
+
+for file in EthnicityGroup/*.tsv; do
+    ethnicity=$(basename "$file" .tsv)  # Extracts the ethnicity name from filename
+    awk -F"\t" 'NR==FNR {iids[$501]; next} $2 in iids' "$file" clean_keep_samples.txt > "EthnicityGroup/${ethnicity}_keep.txt"
+done
+
+for file in EthnicityGroup/*.tsv; do
+    ethnicity=$(basename "$file" .tsv)
+    awk -F"\t" 'NR==FNR && FNR > 1 {iids[$501]; next} $2 in iids' "$file" keep_samples.txt > "EthnicityGroup/${ethnicity}_keep.txt"
+done
+
+
+
+## in R because otherwise we lose the #XXXX.2 
+
+library(data.table)
+
+# Define function to filter and reorder columns
+filter_ethnicity <- function(group_name) {
+  # Construct file paths
+  input_file <- paste0("EthnicityGroup/", group_name, ".tsv")
+  output_file <- paste0("EthnicityGroup/", group_name, "_keep.txt")
+  
+  # Read in ethnicity data
+  ethnicity_data <- fread(input_file, header = TRUE, sep = "\t")
+  
+  # Read in keep_samples (assumes space-separated file with FID and IID)
+  keep_samples <- fread("keep_samples.txt", header = FALSE, sep = " ")
+  setnames(keep_samples, c("FID", "IID"))  # Ensure proper column names
+  
+  # Check if the required column exists
+  if (!("Geno.SampleID" %in% colnames(ethnicity_data))) {
+    stop(paste("Column 'Geno.SampleID' not found in", group_name))
+  }
+  
+  # Filter individuals based on IID
+  filtered_data <- ethnicity_data[Geno.SampleID %in% keep_samples$IID]
+  
+  # Merge with keep_samples to retain FID and reorder columns (IID first, then FID)
+  filtered_data <- merge(keep_samples, filtered_data, by.x = "IID", by.y = "Geno.SampleID")
+  
+  # Save output as space-separated file for PLINK/GCTA
+  fwrite(filtered_data[, .(IID, FID)], output_file, sep = " ", quote = FALSE, col.names = FALSE)
+  
+  # Print success message
+  cat("Filtered dataset saved to", output_file, "with", nrow(filtered_data), "individuals.\n")
+}
+
+# Define the list of ethnicity groups
+ethnic_groups <- c("allPolys", "EastPolys", "europeans", "Oceanians", 
+                   "EuroPoly_data", "eastwests", "WestPolys")
+
+# Apply function to all groups
+lapply(ethnic_groups, filter_ethnicity)
+
+
+## gotta switch around
+
+for keepfile in EthnicityGroup/*_keep.txt; do
+    # Define output file
+    outputfile="${keepfile%.txt}_formatted.txt"
+    
+    # Process the file: swap columns and add header
+    awk 'BEGIN {print "FID IID"} {print $2, $1}' "$keepfile" > "$outputfile"
+
+    echo "Processed: $keepfile -> $outputfile"
+done
+
+
+## Run PLINK2 for each ethnicity group
+
+for keepfile in EthnicityGroup/*_keep_formatted.txt; do
+    group=$(basename "$keepfile" _keep_formatted.txt)
+    /home/adacl33p/Plink2/plink2 --bfile GoGDK_v2 \
+        --keep "$keepfile" --make-bed --out "EthnicityGroup/${group}"
+done
+
+
+## now we have a thing! We can now do maf filtering and beagle imputation! 
+
+
+

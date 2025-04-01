@@ -1,0 +1,144 @@
+#!/bin/bash
+#SBATCH --job-name=gcta_reml
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=64G
+#SBATCH --time=12:00:00
+# Change to project directory
+cd /projects/sciences/maths_stats/wilcox_group/GoGDK-GRMs-2025/
+echo "===== GCTA REML Analysis Script Started ====="
+echo "Starting time: $(date)"
+echo "Working directory: $(pwd)"
+# Define populations and phenotypes
+populations=("WestPolys" "EastPolys" "eastwests" "europeans" "EuroPoly")
+phenotypes=("DIABETES" "GOUT" "HIBP" "HEART" "STROKE" "RHEUMATICHD" "KIDNEY" "WEIGHT" "HEIGHT" "WAIST" "BMI" "MRURATE" "MRCREAT"
+ "TOPHUS" "CHOLES" "TRIGLY" "HDL" "LDL" "SCREAT" "SURICACID" "EGFR_SCL" "FEUA")
+echo "Populations to analyze: ${populations[@]}"
+echo "Phenotypes to analyze: ${phenotypes[@]}"
+# Path to the combined phenotype and covariate files
+phenotype_file="phenotypes/Phenotypes.pheno"
+covariate_file="phenotypes/Merged_CovariateBasic.txt"
+echo "Using phenotype file: $phenotype_file"
+echo "Using covariate file: $covariate_file"
+# Loop over each population
+for pop in "${populations[@]}"; do
+    echo "===== Processing population: $pop ====="
+    
+    # Create results directory
+    mkdir -p ${pop}_results
+    echo "Created results directory: ${pop}_results"
+    
+    # Check if GRM ID file exists
+    if [ ! -f "${pop}_ImputedNoRef_grm.grm.id" ]; then
+        echo "ERROR: GRM ID file not found for $pop: ${pop}_ImputedNoRef_grm.grm.id"
+        echo "Skipping population: $pop"
+        continue
+    fi
+    
+    # Use the GRM ID file to filter phenotype and covariate files
+    echo "Extracting individuals from GRM ID file for $pop..."
+    grm_count=$(wc -l < ./renamed_grms/${pop}_ImputedNoRef_grm.grm.id)
+    echo "  - GRM contains $grm_count individuals"
+    
+    # Create a temporary file with just the IDs from the GRM file
+    cut -d' ' -f1,2 ./renamed_grms/${pop}_ImputedNoRef_grm.grm.id > temp_${pop}_ids.txt
+    
+    # Filter the phenotype file using the GRM IDs
+    echo "Filtering phenotype file for $pop population..."
+    awk 'NR==FNR {ids[$1" "$2]=1; next} 
+         ($1" "$2) in ids {print}' temp_${pop}_ids.txt $phenotype_file > phenotypes/${pop}_phenotypes.pheno
+    
+    phenotype_count=$(wc -l < phenotypes/${pop}_phenotypes.pheno)
+    echo "  - Extracted $phenotype_count individuals for phenotype file"
+    
+    # Filter the covariate file using the GRM IDs
+    echo "Filtering covariate file for $pop population..."
+    awk 'NR==FNR {ids[$1" "$2]=1; next} 
+         ($1" "$2) in ids {print}' temp_${pop}_ids.txt $covariate_file > phenotypes/${pop}_covariates.txt
+    
+    covariate_count=$(wc -l < phenotypes/${pop}_covariates.txt)
+    echo "  - Extracted $covariate_count individuals for covariate file"
+    
+    # Clean up temporary file
+    rm temp_${pop}_ids.txt
+    
+    # Check if the filtered files have data
+    if [ $phenotype_count -eq 0 ]; then
+        echo "ERROR: No individuals found in phenotype file after filtering for $pop"
+        echo "Skipping population: $pop"
+        continue
+    fi
+    
+    if [ $covariate_count -eq 0 ]; then
+        echo "ERROR: No individuals found in covariate file after filtering for $pop"
+        echo "Skipping population: $pop"
+        continue
+    fi
+    
+    # Loop over each phenotype name
+    for pheno in "${phenotypes[@]}"; do
+        echo "----- Processing phenotype: $pheno for $pop -----"
+        
+        # Get the phenotype column index based on the name
+        # Adding 2 because FID and IID are the first two columns
+        pheno_index=0
+        index=1
+        for p in "${phenotypes[@]}"; do
+            if [ "$p" == "$pheno" ]; then
+                pheno_index=$index
+                break
+            fi
+            ((index++))
+        done
+        
+        if [ $pheno_index -eq 0 ]; then
+            echo "ERROR: Phenotype $pheno not found in the list"
+            continue
+        fi
+        
+        echo "  - Phenotype index: $pheno_index"
+        
+        # Calculate actual column position (add 2 for FID and IID columns)
+        actual_column=$((pheno_index + 2))
+        echo "  - Actual column in phenotype file: $actual_column"
+        # Preview phenotype data
+        echo "  - Preview of phenotype data (first 5 values):"
+        cut -d' ' -f1,2,$actual_column phenotypes/${pop}_phenotypes.pheno | head -n 5
+        
+        # Run GCTA as a single command without line breaks
+        echo "  - Running GCTA REML analysis..."
+        output_path="${pop}_results/${pop}_${pheno}_GBLUP"
+        
+        echo "  - Command: /home/adacl33p/GCTA/gcta-1.94.1-linux-kernel-3-x86_64/gcta64 --grm ${pop}_ImputedNoRef_grm --pheno ph
+enotypes/${pop}_phenotypes.pheno --mpheno ${pheno_index} --qcovar phenotypes/${pop}_covariates.txt --reml --reml-pred-rand --out
+ ${output_path}"
+        
+        # Run the command without backslashes
+        /home/adacl33p/GCTA/gcta-1.94.1-linux-kernel-3-x86_64/gcta64 --grm ./renamed_grms/"${pop}_ImputedNoRef_grm" --pheno "phe
+notypes/${pop}_phenotypes.pheno" --mpheno "${pheno_index}" --qcovar "phenotypes/${pop}_covariates.txt" --reml --reml-pred-rand -
+-out "${output_path}"
+        
+        # Check if analysis completed successfully
+        if [ -f "${output_path}.hsq" ]; then
+            echo "  - Analysis completed successfully"
+            echo "  - Results saved to: ${output_path}.hsq"
+            # Display heritability estimate
+            if grep -q "V(G)/Vp" "${output_path}.hsq"; then
+                h2=$(grep "V(G)/Vp" "${output_path}.hsq" | awk '{print $2}')
+                se=$(grep "V(G)/Vp" "${output_path}.hsq" | awk '{print $3}')
+                echo "  - Heritability estimate: $h2 (SE: $se)"
+            fi
+        else
+            echo "  - WARNING: Analysis may have failed. Check log file: ${output_path}.log"
+            echo "  - Log file content:"
+            tail -n 10 "${output_path}.log"
+        fi
+        
+        echo "Finished processing ${pheno} for ${pop}"
+        echo ""
+    done
+    
+    echo "Completed all phenotypes for population: $pop"
+    echo ""
+done
+echo "===== GCTA REML Analysis Script Completed ====="
+echo "Ending time: $(date)"
